@@ -1,0 +1,60 @@
+{
+  "author": {
+    "email": "paul@inc.sh",
+    "name": "Paul Anthony Webb"
+  },
+  "bugs": {
+    "url": "https://hub.socii.network/inc"
+  },
+  "dependencies": {
+    "codemirror": "*",
+    "codemirror-spell-checker": "*",
+    "marked": "*"
+  },
+  "description": "A simple and beautiful JavaScript-based Markdown editor.",
+  "devDependencies": {
+    "@inc/eslint-config": "*",
+    "browserify": "*",
+    "debug": "*",
+    "eslint": "*",
+    "gulp": "*",
+    "gulp-clean-css": "*",
+    "gulp-concat": "*",
+    "gulp-debug": "*",
+    "gulp-eslint": "*",
+    "gulp-header": "*",
+    "gulp-jsbeautifier": "*",
+    "gulp-rename": "*",
+    "gulp-uglify": "*",
+    "snazzy": "*",
+    "standardx": "*",
+    "vinyl-buffer": "*",
+    "vinyl-source-stream": "*"
+  },
+  "homepage": "https://git.inc.sh/IdeasNeverCease/meditate",
+  "keywords": [
+    "editor",
+    "embeddable",
+    "javascript",
+    "markdown",
+    "wysiwyg"
+  ],
+  "license": "BSD-3-Clause",
+  "main": "./src/js/meditate.js",
+  "name": "@inc/meditate",
+  "repository": {
+    "type": "git",
+    "url": "https://git.inc.sh/IdeasNeverCease/meditate.git"
+  },
+  "scripts": {
+    "format": "eslint '**/*.js' --fix --ignore-pattern '/debug' --ignore-pattern '/dist'",
+    "test": "standardx --verbose | snazzy"
+  },
+  "standardx": {
+    "ignore": [
+      "debug",
+      "dist"
+    ]
+  },
+  "version": "1.0.0"
+}
