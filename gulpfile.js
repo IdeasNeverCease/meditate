@@ -2,6 +2,8 @@
 
 
 
+//  P A C K A G E S
+
 const browserify = require("browserify");
 const buffer = require("vinyl-buffer");
 const concat = require("gulp-concat");
@@ -15,6 +17,7 @@ const rename = require("gulp-rename");
 const source = require("vinyl-source-stream");
 const uglify = require("gulp-uglify");
 
+//  U T I L S
 
 const pkg = require("./package.json");
 
@@ -28,7 +31,11 @@ const banner = [
   ""
 ].join("\n");
 
-gulp.task("prettify-js", [], function() {
+
+
+//  P R O G R A M
+
+gulp.task("prettify-js", [], () => {
   return gulp.src("./src/js/meditate.js")
     .pipe(prettify({
       js: {
@@ -42,7 +49,7 @@ gulp.task("prettify-js", [], function() {
     .pipe(gulp.dest("./src/js"));
 });
 
-gulp.task("prettify-css", [], function() {
+gulp.task("prettify-css", [], () => {
   return gulp.src("./src/css/meditate.css")
     .pipe(prettify({
       css: {
@@ -53,7 +60,7 @@ gulp.task("prettify-css", [], function() {
     .pipe(gulp.dest("./src/css"));
 });
 
-gulp.task("lint", ["prettify-js"], function() {
+gulp.task("lint", ["prettify-js"], () => {
   gulp.src("./src/js/**/*.js")
     .pipe(debug())
     .pipe(eslint())
@@ -65,10 +72,10 @@ function taskBrowserify(opts) {
   return browserify("./src/js/meditate.js", opts).bundle();
 }
 
-gulp.task("browserify:debug", ["lint"], function() {
+gulp.task("browserify:debug", ["lint"], () => {
   return taskBrowserify({
     debug: true,
-    standalone: "SimpleMDE"
+    standalone: "Meditate"
   })
     .pipe(source("meditate.debug.js"))
     .pipe(buffer())
@@ -76,15 +83,15 @@ gulp.task("browserify:debug", ["lint"], function() {
     .pipe(gulp.dest("./debug/"));
 });
 
-gulp.task("browserify", ["lint"], function() {
-  return taskBrowserify({ standalone: "SimpleMDE" })
+gulp.task("browserify", ["lint"], () => {
+  return taskBrowserify({ standalone: "Meditate" })
     .pipe(source("meditate.js"))
     .pipe(buffer())
     .pipe(header(banner, { pkg: pkg }))
     .pipe(gulp.dest("./debug/"));
 });
 
-gulp.task("scripts", ["browserify:debug", "browserify", "lint"], function() {
+gulp.task("scripts", ["browserify:debug", "browserify", "lint"], () => {
   const js_files = ["./debug/meditate.js"];
 
   return gulp.src(js_files)
@@ -95,7 +102,7 @@ gulp.task("scripts", ["browserify:debug", "browserify", "lint"], function() {
     .pipe(gulp.dest("./dist/"));
 });
 
-gulp.task("styles", ["prettify-css"], function() {
+gulp.task("styles", ["prettify-css"], () => {
   const css_files = [
     "./node_modules/codemirror/lib/codemirror.css",
     "./src/css/*.css",

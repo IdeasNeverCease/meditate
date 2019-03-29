@@ -6,6 +6,7 @@
   "bugs": {
     "url": "https://hub.socii.network/inc"
   },
+  "company": "Ideas Never Cease",
   "dependencies": {
     "codemirror": "*",
     "codemirror-spell-checker": "*",
@@ -48,6 +49,7 @@
   },
   "scripts": {
     "format": "eslint '**/*.js' --fix --ignore-pattern '/debug' --ignore-pattern '/dist'",
+    "gulp": "gulp",
     "test": "standardx --verbose | snazzy"
   },
   "standardx": {
