@@ -13,5 +13,5 @@ This was forked from EasyMDE for Socii, **maybe** it will work for you. Probably
 ## Install
 
 ```bash
-npm i meditate -S
+npm i @inc/meditate -S
 ```
