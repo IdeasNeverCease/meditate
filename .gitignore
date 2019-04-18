@@ -1,6 +1,10 @@
 # Files
 .DS_Store
+.env
+*.log
+*.lock
 Thumbs.db
 
 # Directories
+dist
 node_modules

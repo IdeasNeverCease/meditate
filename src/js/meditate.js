@@ -1,12 +1,8 @@
-"use strict"; /* global document, module, localStorage, navigator, prompt, require, window */
+"use strict"; /* global module, require */
 
 
-
-//  P A C K A G E S
 
 const CodeMirror = require("codemirror");
-const CodeMirrorSpellChecker = require("codemirror-spell-checker");
-const marked = require("marked");
 
 require("codemirror/addon/edit/continuelist.js");
 require("./codemirror/tablist");
@@ -15,56 +11,57 @@ require("codemirror/mode/markdown/markdown.js");
 require("codemirror/addon/mode/overlay.js");
 require("codemirror/addon/display/placeholder.js");
 require("codemirror/addon/selection/mark-selection.js");
+require("codemirror/addon/search/searchcursor.js");
 require("codemirror/mode/gfm/gfm.js");
 require("codemirror/mode/xml/xml.js");
 
-//  U T I L S
+const CodeMirrorSpellChecker = require("codemirror-spell-checker");
+const marked = require("marked");
 
+const anchorToExternalRegex = new RegExp(/(<a.*?https?:\/\/.*?[^a]>)+?/g);
 const isMac = /Mac/.test(navigator.platform);
-let saved_overflow = ""; // Saved overflow setting
 
 // Mapping of actions that can be bound to keyboard shortcuts or toolbar buttons
 const bindings = {
-  cleanBlock: cleanBlock,
-  drawHorizontalRule: drawHorizontalRule,
-  drawImage: drawImage,
-  drawLink: drawLink,
-  drawTable: drawTable,
-  redo: redo,
-  toggleBlockquote: toggleBlockquote,
   toggleBold: toggleBold,
+  toggleItalic: toggleItalic,
+  drawLink: drawLink,
+  toggleHeadingSmaller: toggleHeadingSmaller,
+  toggleHeadingBigger: toggleHeadingBigger,
+  drawImage: drawImage,
+  toggleBlockquote: toggleBlockquote,
+  toggleOrderedList: toggleOrderedList,
+  toggleUnorderedList: toggleUnorderedList,
   toggleCodeBlock: toggleCodeBlock,
-  toggleFullScreen: toggleFullScreen,
+  togglePreview: togglePreview,
+  toggleStrikethrough: toggleStrikethrough,
   toggleHeading1: toggleHeading1,
   toggleHeading2: toggleHeading2,
   toggleHeading3: toggleHeading3,
-  toggleHeadingSmaller: toggleHeadingSmaller,
-  toggleHeadingBigger: toggleHeadingBigger,
-  toggleItalic: toggleItalic,
-  toggleOrderedList: toggleOrderedList,
-  togglePreview: togglePreview,
+  cleanBlock: cleanBlock,
+  drawTable: drawTable,
+  drawHorizontalRule: drawHorizontalRule,
+  undo: undo,
+  redo: redo,
   toggleSideBySide: toggleSideBySide,
-  toggleStrikethrough: toggleStrikethrough,
-  toggleUnorderedList: toggleUnorderedList,
-  undo: undo
+  toggleFullScreen: toggleFullScreen
 };
 
 const shortcuts = {
+  toggleBold: "Cmd-B",
+  toggleItalic: "Cmd-I",
+  drawLink: "Cmd-K",
+  toggleHeadingSmaller: "Cmd-H",
+  toggleHeadingBigger: "Shift-Cmd-H",
   cleanBlock: "Cmd-E",
   drawImage: "Cmd-Alt-I",
-  drawLink: "Cmd-K",
-
   toggleBlockquote: "Cmd-'",
-  toggleBold: "Cmd-B",
-  toggleCodeBlock: "Cmd-Alt-C",
-  toggleFullScreen: "F11",
-  toggleHeadingBigger: "Shift-Cmd-H",
-  toggleHeadingSmaller: "Cmd-H",
-  toggleItalic: "Cmd-I",
   toggleOrderedList: "Cmd-Alt-L",
+  toggleUnorderedList: "Cmd-L",
+  toggleCodeBlock: "Cmd-Alt-C",
   togglePreview: "Cmd-P",
   toggleSideBySide: "F9",
-  toggleUnorderedList: "Cmd-L"
+  toggleFullScreen: "F11"
 };
 
 const getBindingName = function(f) {
@@ -89,6 +86,31 @@ const isMobile = function() {
   return check;
 };
 
+// Saved overflow setting
+let saved_overflow = "";
+
+
+
+/**
+ * Modify HTML to add 'target="_blank"' to links so they open in new tabs by default.
+ * @param {string} htmlText - HTML to be modified.
+ * @return {string} The modified HTML text.
+ */
+function addAnchorTargetBlank(htmlText) {
+  let match;
+
+  while ((match = anchorToExternalRegex.exec(htmlText)) !== null) {
+    // With only one capture group in the RegExp, we can safely take the first index from the match.
+    const linkString = match[0];
+
+    if (linkString.indexOf("target=") === -1) {
+      const fixedLinkString = linkString.replace(/>$/, " target=\"_blank\">");
+      htmlText = htmlText.replace(linkString, fixedLinkString); // eslint-disable-line padding-line-between-statements
+    }
+  }
+
+  return htmlText;
+}
 
 
 /**
@@ -104,20 +126,19 @@ function fixShortcut(name) {
 }
 
 
-
 /**
- * Create icon element for toolbar.
+ * Create button element for toolbar.
  */
-function createIcon(options, enableTooltips, shortcuts) {
+function createToolbarButton(options, enableTooltips, shortcuts) {
   options = options || {};
-  const el = document.createElement("a");
+  const el = document.createElement("button");
 
-  enableTooltips = (enableTooltips === undefined) ?
-    true :
-    enableTooltips;
+  el.className = options.name;
+  el.setAttribute("type", "button");
+  enableTooltips = (enableTooltips === undefined) ? true : enableTooltips;
 
   if (options.title && enableTooltips) {
-    el.title = createTootlip(options.title, options.action, shortcuts);
+    el.title = createTooltip(options.title, options.action, shortcuts);
 
     if (isMac) {
       el.title = el.title.replace("Ctrl", "⌘");
@@ -125,9 +146,38 @@ function createIcon(options, enableTooltips, shortcuts) {
     }
   }
 
-  el.tabIndex = -1;
-  el.className = options.className;
+  if (options.noDisable)
+    el.classList.add("no-disable");
 
+  if (options.noMobile)
+    el.classList.add("no-mobile");
+
+  // Provide backwards compatibility with simple-markdown-editor by adding custom classes to the button.
+  const classNameParts = options.className.split(" ");
+  const iconClasses = [];
+
+  for (let classNameIndex = 0; classNameIndex < classNameParts.length; classNameIndex++) {
+    const classNamePart = classNameParts[classNameIndex];
+
+    // Split icon classes from the button.
+    // Regex will detect "fa", "fas", "fa-something" and "fa-some-icon-1", but not "fanfare".
+    if (classNamePart.match(/^fa([srlb]|(-[\w-]*)|$)/))
+      iconClasses.push(classNamePart);
+    else
+      el.classList.add(classNamePart);
+  }
+
+  el.tabIndex = -1;
+
+  // Create icon element and append as a child to the button
+  const icon = document.createElement("i");
+
+  for (let iconClassIndex = 0; iconClassIndex < iconClasses.length; iconClassIndex++) {
+    const iconClass = iconClasses[iconClassIndex];
+    icon.classList.add(iconClass); // eslint-disable-line padding-line-between-statements
+  }
+
+  el.appendChild(icon);
   return el;
 }
 
@@ -140,7 +190,7 @@ function createSep() {
   return el;
 }
 
-function createTootlip(title, action, shortcuts) {
+function createTooltip(title, action, shortcuts) {
   let actionName;
   let tooltip = title;
 
@@ -154,8 +204,6 @@ function createTootlip(title, action, shortcuts) {
   return tooltip;
 }
 
-
-
 /**
  * The state of CodeMirror at the given position.
  */
@@ -167,7 +215,6 @@ function getState(cm, pos) {
     return {};
 
   const types = stat.type.split(" ");
-
   const ret = {};
   let data;
   let text;
@@ -187,6 +234,7 @@ function getState(cm, pos) {
           ret["ordered-list"] = true;
         else
           ret["unordered-list"] = true;
+
         break;
 
       case data === "atom":
@@ -229,8 +277,6 @@ function getState(cm, pos) {
   return ret;
 }
 
-
-
 /**
  * Toggle full screen of the editor.
  */
@@ -257,21 +303,24 @@ function toggleFullScreen(editor) {
     wrap.previousSibling.className = wrap.previousSibling.className.replace(/\s*fullscreen\b/, "");
 
   // Update toolbar button
-  const toolbarButton = editor.toolbarElements.fullscreen;
+  if (editor.toolbarElements && editor.toolbarElements.fullscreen) {
+    const toolbarButton = editor.toolbarElements.fullscreen;
 
-  if (!/active/.test(toolbarButton.className))
-    toolbarButton.className += " active";
-  else
-    toolbarButton.className = toolbarButton.className.replace(/\s*active\s*/g, "");
+    if (!/active/.test(toolbarButton.className))
+      toolbarButton.className += " active";
+    else
+      toolbarButton.className = toolbarButton.className.replace(/\s*active\s*/g, "");
+  }
 
   // Hide side by side if needed
   const sidebyside = cm.getWrapperElement().nextSibling;
 
   if (/editor-preview-active-side/.test(sidebyside.className))
     toggleSideBySide(editor);
+
+  if (editor.options.onToggleFullScreen)
+    editor.options.onToggleFullScreen(cm.getOption("fullScreen") || false);
 }
-
-
 
 /**
  * Action for toggling bold.
@@ -280,8 +329,6 @@ function toggleBold(editor) {
   _toggleBlock(editor, "bold", editor.options.blockStyles.bold);
 }
 
-
-
 /**
  * Action for toggling italic.
  */
@@ -289,16 +336,12 @@ function toggleItalic(editor) {
   _toggleBlock(editor, "italic", editor.options.blockStyles.italic);
 }
 
-
-
 /**
  * Action for toggling strikethrough.
  */
 function toggleStrikethrough(editor) {
   _toggleBlock(editor, "strikethrough", "~~");
 }
-
-
 
 /**
  * Action for toggling code block.
@@ -321,11 +364,11 @@ function toggleCodeBlock(editor) {
 
   function code_type(cm, line_num, line, firstTok, lastTok) {
     /*
-		 * Return "single", "indented", "fenced" or false
-		 *
-		 * cm and line_num are required.  Others are optional for efficiency
-		 *   To check in the middle of a line, pass in firstTok yourself.
-		 */
+     * Return "single", "indented", "fenced" or false
+     *
+     * cm and line_num are required.  Others are optional for efficiency
+     *   To check in the middle of a line, pass in firstTok yourself.
+     */
     line = line || cm.getLineHandle(line_num);
 
     firstTok = firstTok || cm.getTokenAt({
@@ -338,34 +381,26 @@ function toggleCodeBlock(editor) {
       ch: line.text.length - 1
     }));
 
-    const types = firstTok.type ?
-      firstTok.type.split(" ") :
-      [];
+    const types = firstTok.type ? firstTok.type.split(" ") : [];
 
-    switch(true) {
-      case lastTok && token_state(lastTok).indentedCode:
-        // have to check last char, since first chars of first line are not marked as indented
-        return "indented";
-
-      case types.indexOf("comment") === -1:
-        // has to be after "indented" check, since first chars of first indented line are not marked as such
-        return false;
-
-      case token_state(firstTok).fencedChars:
-      case token_state(lastTok).fencedChars:
-      case fencing_line(line):
-        return "fenced";
-
-      default:
-        return "single";
+    if (lastTok && token_state(lastTok).indentedCode) {
+      // have to check last char, since first chars of first line are not marked as indented
+      return "indented";
+    } else if (types.indexOf("comment") === -1) {
+      // has to be after "indented" check, since first chars of first indented line are not marked as such
+      return false;
+    } else if (token_state(firstTok).fencedChars || token_state(lastTok).fencedChars || fencing_line(line)) {
+      return "fenced";
+    } else {
+      return "single";
     }
   }
 
   function insertFencingAtSelection(cm, cur_start, cur_end, fenceCharsToInsert) {
     const start_line_sel = cur_start.line + 1;
+    let end_line_sel = cur_end.line + 1;
     const sel_multi = cur_start.line !== cur_end.line;
     const repl_start = fenceCharsToInsert + "\n";
-    let end_line_sel = cur_end.line + 1;
     let repl_end = "\n" + fenceCharsToInsert;
 
     if (sel_multi)
@@ -383,8 +418,7 @@ function toggleCodeBlock(editor) {
       {
         line: start_line_sel,
         ch: 0
-      },
-      {
+      }, {
         line: end_line_sel,
         ch: 0
       }
@@ -411,16 +445,13 @@ function toggleCodeBlock(editor) {
     const start = line.text.slice(0, cur_start.ch).replace("`", "");
     const end = line.text.slice(cur_start.ch).replace("`", "");
 
-    cm.replaceRange(
-      start + end,
-      {
-        line: cur_start.line,
-        ch: 0
-      }, {
-        line: cur_start.line,
-        ch: 99999999999999
-      }
-    );
+    cm.replaceRange(start + end, {
+      line: cur_start.line,
+      ch: 0
+    }, {
+      line: cur_start.line,
+      ch: 99999999999999
+    });
 
     cur_start.ch--;
 
@@ -453,42 +484,29 @@ function toggleCodeBlock(editor) {
       let end_text;
 
       // check for selection going up against fenced lines, in which case we do not want to add more fencing
-      switch(true) {
-        case fencing_line(cm.getLineHandle(cur_start.line)):
-          start_text = "";
-          start_line = cur_start.line;
-          break;
-
-        case fencing_line(cm.getLineHandle(cur_start.line - 1)):
-          start_text = "";
-          start_line = cur_start.line - 1;
-          break;
-
-        default:
-          start_text = fence_chars + "\n";
-          start_line = cur_start.line;
-          break;
+      if (fencing_line(cm.getLineHandle(cur_start.line))) {
+        start_text = "";
+        start_line = cur_start.line;
+      } else if (fencing_line(cm.getLineHandle(cur_start.line - 1))) {
+        start_text = "";
+        start_line = cur_start.line - 1;
+      } else {
+        start_text = fence_chars + "\n";
+        start_line = cur_start.line;
       }
 
-      switch(true) {
-        case fencing_line(cm.getLineHandle(cur_end.line)):
-          end_text = "";
-          end_line = cur_end.line;
+      if (fencing_line(cm.getLineHandle(cur_end.line))) {
+        end_text = "";
+        end_line = cur_end.line;
 
-          if (cur_end.ch === 0)
-            end_line += 1;
-
-          break;
-
-        case cur_end.ch !== 0 && fencing_line(cm.getLineHandle(cur_end.line + 1)):
-          end_text = "";
-          end_line = cur_end.line + 1;
-          break;
-
-        default:
-          end_text = fence_chars + "\n";
-          end_line = cur_end.line + 1;
-          break;
+        if (cur_end.ch === 0)
+          end_line += 1;
+      } else if (cur_end.ch !== 0 && fencing_line(cm.getLineHandle(cur_end.line + 1))) {
+        end_text = "";
+        end_line = cur_end.line + 1;
+      } else {
+        end_text = fence_chars + "\n";
+        end_line = cur_end.line + 1;
       }
 
       // full last line selected, putting cursor at beginning of next
@@ -497,36 +515,29 @@ function toggleCodeBlock(editor) {
 
       cm.operation(function() {
         // end line first, so that line numbers do not change
-        cm.replaceRange(end_text,
-          {
-            line: end_line,
-            ch: 0
-          }, {
-            line: end_line + (end_text ? 0 : 1),
-            ch: 0
-          }
-        );
-
-        cm.replaceRange(start_text,
-          {
-            line: start_line,
-            ch: 0
-          }, {
-            line: start_line + (start_text ? 0 : 1),
-            ch: 0
-          }
-        );
-      });
-
-      cm.setSelection(
-        {
-          line: start_line + (start_text ? 1 : 0),
+        cm.replaceRange(end_text, {
+          line: end_line,
           ch: 0
         }, {
-          line: end_line + (start_text ? 1 : -1),
+          line: end_line + (end_text ? 0 : 1),
           ch: 0
-        }
-      );
+        });
+        cm.replaceRange(start_text, {
+          line: start_line,
+          ch: 0
+        }, {
+          line: start_line + (start_text ? 0 : 1),
+          ch: 0
+        });
+      });
+
+      cm.setSelection({
+        line: start_line + (start_text ? 1 : 0),
+        ch: 0
+      }, {
+        line: end_line + (start_text ? 1 : -1),
+        ch: 0
+      });
 
       cm.focus();
     } else {
@@ -608,8 +619,6 @@ function toggleCodeBlock(editor) {
             block_start += 1;
             break;
           }
-
-          // continue?
         }
       }
 
@@ -626,8 +635,6 @@ function toggleCodeBlock(editor) {
             block_end -= 1;
             break;
           }
-
-          // continue?
         }
       }
     }
@@ -651,7 +658,7 @@ function toggleCodeBlock(editor) {
     }
 
     for (let i = block_start; i <= block_end; i++)
-      cm.indentLine(i, "subtract"); // TODO: this does not get tracked in the history, so cannot be undone :(
+      cm.indentLine(i, "subtract"); // TODO: this doesn't get tracked in the history, so can't be undone :(
 
     cm.focus();
   } else {
@@ -747,10 +754,10 @@ function drawLink(editor) {
   const cm = editor.codemirror;
   const stat = getState(cm);
   const options = editor.options;
-  let url = "http://";
+  let url = "https://";
 
   if (options.promptURLs) {
-    url = prompt(options.promptTexts.link);
+    url = prompt(options.promptTexts.link, "https://");
 
     if (!url)
       return false;
@@ -766,15 +773,14 @@ function drawImage(editor) {
   const cm = editor.codemirror;
   const stat = getState(cm);
   const options = editor.options;
-  let url = "http://";
+  let url = "https://";
 
   if (options.promptURLs) {
-    url = prompt(options.promptTexts.image);
+    url = prompt(options.promptTexts.image, "https://");
 
     if (!url)
       return false;
   }
-
   _replaceSelection(cm, stat.image, options.insertTexts.image, url);
 }
 
@@ -830,7 +836,7 @@ function toggleSideBySide(editor) {
   const cm = editor.codemirror;
   const wrapper = cm.getWrapperElement();
   const preview = wrapper.nextSibling;
-  const toolbarButton = editor.toolbarElements["side-by-side"];
+  const toolbarButton = editor.toolbarElements && editor.toolbarElements["side-by-side"];
   let useSideBySideListener = false;
 
   if (/editor-preview-active-side/.test(preview.className)) {
@@ -838,7 +844,9 @@ function toggleSideBySide(editor) {
       /\s*editor-preview-active-side\s*/g, ""
     );
 
-    toolbarButton.className = toolbarButton.className.replace(/\s*active\s*/g, "");
+    if (toolbarButton)
+      toolbarButton.className = toolbarButton.className.replace(/\s*active\s*/g, "");
+
     wrapper.className = wrapper.className.replace(/\s*CodeMirror-sided\s*/g, " ");
   } else {
     // When the preview button is clicked for the first time,
@@ -851,7 +859,9 @@ function toggleSideBySide(editor) {
       preview.className += " editor-preview-active-side";
     }, 1);
 
-    toolbarButton.className += " active";
+    if (toolbarButton)
+      toolbarButton.className += " active";
+
     wrapper.className += " CodeMirror-sided";
     useSideBySideListener = true;
   }
@@ -928,6 +938,7 @@ function togglePreview(editor) {
       toolbar_div.className += " disabled-for-preview";
     }
   }
+
   preview.innerHTML = editor.options.previewRender(editor.value(), preview);
 
   // Turn off side by side if needed
@@ -944,8 +955,11 @@ function _replaceSelection(cm, active, startEnd, url) {
   let text;
   let start = startEnd[0];
   let end = startEnd[1];
-  let startPoint = cm.getCursor("start");
-  let endPoint = cm.getCursor("end");
+  const startPoint = {};
+  const endPoint = {};
+
+  Object.assign(startPoint, cm.getCursor("start"));
+  Object.assign(endPoint, cm.getCursor("end"));
 
   if (url)
     end = end.replace("#url#", url);
@@ -962,6 +976,7 @@ function _replaceSelection(cm, active, startEnd, url) {
   } else {
     text = cm.getSelection();
     cm.replaceSelection(start + text + end);
+
     startPoint.ch += start.length;
 
     if (startPoint !== endPoint)
@@ -1002,26 +1017,29 @@ function _toggleHeading(cm, direction, size) {
         }
       } else {
         if (size === 1) {
-          if (currHeadingLevel <= 0)
+          if (currHeadingLevel <= 0) {
             text = "# " + text;
-          else if (currHeadingLevel === size)
+          } else if (currHeadingLevel === size) {
             text = text.substr(currHeadingLevel + 1);
-          else
+          } else {
             text = "# " + text.substr(currHeadingLevel + 1);
+          }
         } else if (size === 2) {
-          if (currHeadingLevel <= 0)
+          if (currHeadingLevel <= 0) {
             text = "## " + text;
-          else if (currHeadingLevel === size)
+          } else if (currHeadingLevel === size) {
             text = text.substr(currHeadingLevel + 1);
-          else
+          } else {
             text = "## " + text.substr(currHeadingLevel + 1);
+          }
         } else {
-          if (currHeadingLevel <= 0)
+          if (currHeadingLevel <= 0) {
             text = "### " + text;
-          else if (currHeadingLevel === size)
+          } else if (currHeadingLevel === size) {
             text = text.substr(currHeadingLevel + 1);
-          else
+          } else {
             text = "### " + text.substr(currHeadingLevel + 1);
+          }
         }
       }
 
@@ -1045,30 +1063,63 @@ function _toggleLine(cm, name) {
   if (/editor-preview-active/.test(cm.getWrapperElement().lastChild.className))
     return;
 
+  const listRegexp = /^(\s*)(\*|-|\+|\d*\.)(\s+)/;
+  const whitespacesRegexp = /^\s*/;
   const stat = getState(cm);
   const startPoint = cm.getCursor("start");
   const endPoint = cm.getCursor("end");
 
   const repl = {
-    "ordered-list": /^(\s*)\d+\.\s+/,
     quote: /^(\s*)>\s+/,
-    "unordered-list": /^(\s*)(\*|-|\+)\s+/
+    "unordered-list": listRegexp,
+    "ordered-list": listRegexp
   };
 
-  const map = {
-    "ordered-list": "1. ",
-    quote: "> ",
-    "unordered-list": "* "
+  const _getChar = function(name, i) {
+    const map = {
+      quote: ">",
+      "unordered-list": "*",
+      "ordered-list": "%%i."
+    };
+
+    return map[name].replace("%%i", i);
   };
+
+  const _checkChar = function(name, char) {
+    const map = {
+      quote: ">",
+      "unordered-list": "*",
+      "ordered-list": "d+."
+    };
+
+    const rt = new RegExp(map[name]);
+
+    return char && rt.test(char);
+  };
+
+  let line = 1;
 
   for (let i = startPoint.line; i <= endPoint.line; i++) {
     (function(i) {
       let text = cm.getLine(i);
 
-      if (stat[name])
+      if (stat[name]) {
         text = text.replace(repl[name], "$1");
-      else
-        text = map[name] + text;
+      } else {
+        var arr = listRegexp.exec(text);
+        var char = _getChar(name, line);
+
+        if (arr !== null) {
+          if (_checkChar(name, arr[2]))
+            char = "";
+
+          text = arr[1] + char + arr[3] + text.replace(whitespacesRegexp, "").replace(repl[name], "$1");
+        } else {
+          text = char + " " + text;
+        }
+
+        line += 1;
+      }
 
       cm.replaceRange(text,
         {
@@ -1089,15 +1140,19 @@ function _toggleBlock(editor, type, start_chars, end_chars) {
   if (/editor-preview-active/.test(editor.codemirror.getWrapperElement().lastChild.className))
     return;
 
-  end_chars = (typeof end_chars === "undefined") ? start_chars : end_chars;
+  end_chars = (typeof end_chars === "undefined") ?
+    start_chars :
+    end_chars;
 
   const cm = editor.codemirror;
-  const endPoint = cm.getCursor("end");
-  const startPoint = cm.getCursor("start");
   const stat = getState(cm);
+
   let text;
   let start = start_chars;
   let end = end_chars;
+
+  const startPoint = cm.getCursor("start");
+  const endPoint = cm.getCursor("end");
 
   if (stat[type]) {
     text = cm.getLine(startPoint.line);
@@ -1187,16 +1242,18 @@ function _cleanBlock(cm) {
 function _mergeProperties(target, source) {
   for (const property in source) {
     if (source.hasOwnProperty(property)) {
-      if (source[property] instanceof Array) {
-        target[property] = source[property].concat(target[property] instanceof Array ? target[property] : []);
-      } else if (
-        source[property] !== null &&
-				typeof source[property] === "object" &&
-				source[property].constructor === Object
-      ) {
-        target[property] = _mergeProperties(target[property] || {}, source[property]);
-      } else {
-        target[property] = source[property];
+      switch(true) {
+        case source[property] instanceof Array:
+          target[property] = source[property].concat(target[property] instanceof Array ? target[property] : []);
+          break;
+
+        case source[property] !== null && typeof source[property] === "object" && source[property].constructor === Object:
+          target[property] = _mergeProperties(target[property] || {}, source[property]);
+          break;
+
+        default:
+          target[property] = source[property];
+          break;
       }
     }
   }
@@ -1214,7 +1271,7 @@ function extend(target) {
 
 /* The right word count in respect for CJK. */
 function wordCount(data) {
-  const pattern = /[a-zA-Z0-9_\u0392-\u03c9\u0410-\u04F9]+|[\u4E00-\u9FFF\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\uac00-\ud7af]+/g;
+  const pattern = /[a-zA-Z0-9_\u00A0-\u02AF\u0392-\u03c9\u0410-\u04F9]+|[\u4E00-\u9FFF\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\uac00-\ud7af]+/g;
   const m = data.match(pattern);
   let count = 0;
 
@@ -1255,38 +1312,38 @@ const toolbarBuiltInButtons = {
   heading: {
     name: "heading",
     action: toggleHeadingSmaller,
-    className: "fa fa-header",
+    className: "fa fa-header fa-heading",
     title: "Heading",
     default: true
   },
   "heading-smaller": {
     name: "heading-smaller",
     action: toggleHeadingSmaller,
-    className: "fa fa-header fa-header-x fa-header-smaller",
+    className: "fa fa-header fa-heading header-smaller",
     title: "Smaller Heading"
   },
   "heading-bigger": {
     name: "heading-bigger",
     action: toggleHeadingBigger,
-    className: "fa fa-header fa-header-x fa-header-bigger",
+    className: "fa fa-header fa-heading header-bigger",
     title: "Bigger Heading"
   },
   "heading-1": {
     name: "heading-1",
     action: toggleHeading1,
-    className: "fa fa-header fa-header-x fa-header-1",
+    className: "fa fa-header fa-heading header-1",
     title: "Big Heading"
   },
   "heading-2": {
     name: "heading-2",
     action: toggleHeading2,
-    className: "fa fa-header fa-header-x fa-header-2",
+    className: "fa fa-header fa-heading header-2",
     title: "Medium Heading"
   },
   "heading-3": {
     name: "heading-3",
     action: toggleHeading3,
-    className: "fa fa-header fa-header-x fa-header-3",
+    className: "fa fa-header fa-heading header-3",
     title: "Small Heading"
   },
   "separator-1": {
@@ -1322,7 +1379,7 @@ const toolbarBuiltInButtons = {
   "clean-block": {
     name: "clean-block",
     action: cleanBlock,
-    className: "fa fa-eraser fa-clean-block",
+    className: "fa fa-eraser",
     title: "Clean block"
   },
   "separator-2": {
@@ -1338,7 +1395,7 @@ const toolbarBuiltInButtons = {
   image: {
     name: "image",
     action: drawImage,
-    className: "fa fa-picture-o",
+    className: "fa fa-image",
     title: "Insert Image",
     default: true
   },
@@ -1360,21 +1417,26 @@ const toolbarBuiltInButtons = {
   preview: {
     name: "preview",
     action: togglePreview,
-    className: "fa fa-eye no-disable",
+    className: "fa fa-eye",
+    noDisable: true,
     title: "Toggle Preview",
     default: true
   },
   "side-by-side": {
     name: "side-by-side",
     action: toggleSideBySide,
-    className: "fa fa-columns no-disable no-mobile",
+    className: "fa fa-columns",
+    noDisable: true,
+    noMobile: true,
     title: "Toggle Side by Side",
     default: true
   },
   fullscreen: {
     name: "fullscreen",
     action: toggleFullScreen,
-    className: "fa fa-arrows-alt no-disable no-mobile",
+    className: "fa fa-arrows-alt",
+    noDisable: true,
+    noMobile: true,
     title: "Toggle Fullscreen",
     default: true
   },
@@ -1383,8 +1445,9 @@ const toolbarBuiltInButtons = {
   },
   guide: {
     name: "guide",
-    action: "https://meditate.com/markdown-guide",
+    action: "https://www.markdownguide.org/basic-syntax/",
     className: "fa fa-question-circle",
+    noDisable: true,
     title: "Markdown Guide",
     default: true
   },
@@ -1394,34 +1457,24 @@ const toolbarBuiltInButtons = {
   undo: {
     name: "undo",
     action: undo,
-    className: "fa fa-undo no-disable",
+    className: "fa fa-undo",
+    noDisable: true,
     title: "Undo"
   },
   redo: {
     name: "redo",
     action: redo,
-    className: "fa fa-repeat no-disable",
+    className: "fa fa-repeat fa-redo",
+    noDisable: true,
     title: "Redo"
   }
 };
 
 const insertTexts = {
-  link: [
-    "[",
-    "](#url#)"
-  ],
-  image: [
-    "![](",
-    "#url#)"
-  ],
-  table: [
-    "",
-    "\n\n| Column 1 | Column 2 | Column 3 |\n| -------- | -------- | -------- |\n| Text     | Text     | Text     |\n\n"
-  ],
-  horizontalRule: [
-    "",
-    "\n\n-----\n\n"
-  ]
+  link: ["[", "](#url#)"],
+  image: ["![](", "#url#)"],
+  table: ["", "\n\n| Column 1 | Column 2 | Column 3 |\n| -------- | -------- | -------- |\n| Text     | Text     | Text     |\n\n"],
+  horizontalRule: ["", "\n\n-----\n\n"]
 };
 
 const promptTexts = {
@@ -1442,12 +1495,11 @@ function Meditate(options) {
   // Handle options parameter
   options = options || {};
 
-  // Used later to refer to its parent
+  // Used later to refer to it"s parent
   options.parent = this;
 
-  // TODO: Remove Font Awesome code
   // Check if Font Awesome needs to be auto downloaded
-  let autoDownloadFA = true;
+  let autoDownloadFA = false;
 
   if (options.autoDownloadFontAwesome === false)
     autoDownloadFA = false;
@@ -1479,10 +1531,9 @@ function Meditate(options) {
     this.element = options.element;
   } else if (options.element === null) {
     // This means that the element option was specified, but no element was found
-    console.warn("Meditate: Error. No element was found."); // eslint-disable-line no-console
+    console.log("Meditate: Error. No element was found."); // eslint-disable-line no-console
     return;
   }
-
 
   // Handle toolbar
   if (options.toolbar === undefined) {
@@ -1497,7 +1548,10 @@ function Meditate(options) {
 
         if (
           toolbarBuiltInButtons[key].default === true ||
-          (options.showIcons && options.showIcons.constructor === Array && options.showIcons.indexOf(key) !== -1)
+          (
+            options.showIcons && options.showIcons.constructor === Array &&
+            options.showIcons.indexOf(key) !== -1
+          )
         ) options.toolbar.push(key);
       }
     }
@@ -1505,12 +1559,7 @@ function Meditate(options) {
 
   // Handle status bar
   if (!options.hasOwnProperty("status"))
-    options.status = [
-      "autosave",
-      "lines",
-      "words",
-      "cursor"
-    ];
+    options.status = ["autosave", "lines", "words", "cursor"];
 
   // Add default preview rendering function
   if (!options.previewRender) {
@@ -1529,13 +1578,14 @@ function Meditate(options) {
   options.insertTexts = extend({}, insertTexts, options.insertTexts || {});
 
   // Merging the promptTexts, with the given options
-  options.promptTexts = promptTexts;
+  options.promptTexts = extend({}, promptTexts, options.promptTexts || {});
 
   // Merging the blockStyles, with the given options
   options.blockStyles = extend({}, blockStyles, options.blockStyles || {});
 
   // Merging the shortcuts, with the given options
   options.shortcuts = extend({}, shortcuts, options.shortcuts || {});
+  options.minHeight = options.minHeight || "300px";
 
   // Change unique_id to uniqueId for backwards compatibility
   if (options.autosave !== undefined && options.autosave.unique_id !== undefined && options.autosave.unique_id !== "")
@@ -1552,7 +1602,10 @@ function Meditate(options) {
   // the element has been rendered
   if (
     options.initialValue &&
-    (!this.options.autosave || this.options.autosave.foundSavedValue !== true)
+    (
+      !this.options.autosave ||
+      this.options.autosave.foundSavedValue !== true
+    )
   ) this.value(options.initialValue);
 }
 
@@ -1561,31 +1614,42 @@ function Meditate(options) {
  */
 Meditate.prototype.markdown = function(text) {
   if (marked) {
-    // Initialize
-    const markedOptions = {};
+    // TODO:
+    // Set `sanitize` to `true`
 
+    // Initialize
+    let markedOptions;
+
+    if (this.options && this.options.renderingConfig && this.options.renderingConfig.markedOptions)
+      markedOptions = this.options.renderingConfig.markedOptions;
+    else
+      markedOptions = {};
 
     // Update options
-    if (
-      this.options &&
-      this.options.renderingConfig &&
-      this.options.renderingConfig.singleLineBreaks === false
-    ) markedOptions.breaks = false;
+    if (this.options && this.options.renderingConfig && this.options.renderingConfig.singleLineBreaks === false)
+      markedOptions.breaks = false;
     else
       markedOptions.breaks = true;
 
-    if (
-      this.options &&
-      this.options.renderingConfig &&
-      this.options.renderingConfig.codeSyntaxHighlighting === true &&
-      window.hljs
-    ) markedOptions.highlight = code => window.hljs.highlightAuto(code).value;
+    if (this.options && this.options.renderingConfig && this.options.renderingConfig.codeSyntaxHighlighting === true) {
+      /* Get HLJS from config or window */
+      const hljs = this.options.renderingConfig.hljs || window.hljs;
+
+      /* Check if HLJS loaded */
+      if (hljs)
+        markedOptions.highlight = code => hljs.highlightAuto(code).value;
+    }
 
     // Set options
     marked.setOptions(markedOptions);
 
-    // Return
-    return marked(text);
+    // Convert the markdown to HTML
+    let htmlText = marked(text);
+
+    // Edit the HTML anchors to add 'target="_blank"' by default.
+    htmlText = addAnchorTargetBlank(htmlText);
+
+    return htmlText;
   }
 };
 
@@ -1597,10 +1661,11 @@ Meditate.prototype.render = function(el) {
     el = this.element || document.getElementsByTagName("textarea")[0];
 
   if (this._rendered && this._rendered === el)
-    return; // Already rendered.
+    return; // Already rendered
 
   this.element = el;
   const options = this.options;
+
   const self = this;
   const keyMaps = {};
 
@@ -1619,7 +1684,7 @@ Meditate.prototype.render = function(el) {
   keyMaps["Tab"] = "tabAndIndentMarkdownList";
   keyMaps["Shift-Tab"] = "shiftTabAndUnindentMarkdownList";
 
-  keyMaps["Esc"] = cm => {
+  keyMaps["Esc"] = function(cm) {
     if (cm.getOption("fullScreen"))
       toggleFullScreen(self);
   };
@@ -1627,10 +1692,9 @@ Meditate.prototype.render = function(el) {
   document.addEventListener("keydown", function(e) {
     e = e || window.event;
 
-    if (e.keyCode === 27) {
+    if (e.keyCode === 27)
       if (self.codemirror.getOption("fullScreen"))
         toggleFullScreen(self);
-    }
   }, false);
 
   let backdrop;
@@ -1651,25 +1715,38 @@ Meditate.prototype.render = function(el) {
     mode.gitHubSpice = false;
   }
 
+  // eslint-disable-next-line no-unused-vars
+  function configureMouse(cm, repeat, event) {
+    return {
+      addNew: false
+    };
+  }
+
   this.codemirror = CodeMirror.fromTextArea(el, {
-    allowDropFileTypes: ["text/plain"],
-    autofocus: (options.autofocus === true) ? true : false,
-    backdrop: backdrop,
-    extraKeys: keyMaps,
-    indentUnit: (options.tabSize !== undefined) ? options.tabSize : 2,
-    indentWithTabs: (options.indentWithTabs === false) ? false : true,
-    lineNumbers: false,
-    lineWrapping: (options.lineWrapping === false) ? false : true,
     mode: mode,
-    placeholder: options.placeholder || el.getAttribute("placeholder") || "",
-    styleSelectedText: (options.styleSelectedText !== undefined) ? options.styleSelectedText : true,
+    backdrop: backdrop,
+    theme: (options.theme !== undefined) ? options.theme : "meditate",
     tabSize: (options.tabSize !== undefined) ? options.tabSize : 2,
-    theme: "paper" // TODO: Create Socii theme
+    indentUnit: (options.tabSize !== undefined) ? options.tabSize : 2,
+    indentWithTabs: (options.indentWithTabs === true) ? true : false,
+    lineNumbers: false,
+    autofocus: (options.autofocus === true) ? true : false,
+    extraKeys: keyMaps,
+    lineWrapping: (options.lineWrapping === false) ? false : true,
+    allowDropFileTypes: ["text/plain"],
+    placeholder: options.placeholder || el.getAttribute("placeholder") || "",
+    styleSelectedText: (options.styleSelectedText !== undefined) ? options.styleSelectedText : !isMobile(),
+    configureMouse: configureMouse
   });
+
+  this.codemirror.getScrollerElement().style.minHeight = options.minHeight;
 
   if (options.forceSync === true) {
     const cm = this.codemirror;
-    cm.on("change", () => cm.save()); // eslint-disable-line padding-line-between-statements
+
+    cm.on("change", function() {
+      cm.save();
+    });
   }
 
   this.gui = {};
@@ -1700,7 +1777,7 @@ function isLocalStorageAvailable() {
     try {
       localStorage.setItem("smde_localStorage", 1);
       localStorage.removeItem("smde_localStorage");
-    } catch(e) {
+    } catch (e) {
       return false;
     }
   } else {
@@ -1712,24 +1789,33 @@ function isLocalStorageAvailable() {
 
 Meditate.prototype.autosave = function() {
   if (isLocalStorageAvailable()) {
-    let meditate = this;
+    const easyMDE = this;
 
     if (this.options.autosave.uniqueId === undefined || this.options.autosave.uniqueId === "") {
-      console.warn("Meditate: You must set a uniqueId to use the autosave feature"); // eslint-disable-line no-console
+      console.log("Meditate: You must set a uniqueId to use the autosave feature"); // eslint-disable-line no-console
       return;
     }
 
-    if (meditate.element.form !== null && meditate.element.form !== undefined) {
-      meditate.element.form.addEventListener("submit", () => {
-        localStorage.removeItem("smde_" + meditate.options.autosave.uniqueId);
-      });
+    if(this.options.autosave.binded !== true) {
+      if (easyMDE.element.form !== null && easyMDE.element.form !== undefined) {
+        easyMDE.element.form.addEventListener("submit", function() {
+          clearTimeout(easyMDE.autosaveTimeoutId);
+          easyMDE.autosaveTimeoutId = undefined;
+
+          localStorage.removeItem("smde_" + easyMDE.options.autosave.uniqueId);
+
+          // Restart autosaving in case the submit will be cancelled down the line
+          setTimeout(function() {
+            easyMDE.autosave();
+          }, easyMDE.options.autosave.delay || 10000);
+        });
+      }
+
+      this.options.autosave.binded = true;
     }
 
     if (this.options.autosave.loaded !== true) {
-      if (
-        typeof localStorage.getItem("smde_" + this.options.autosave.uniqueId) === "string" &&
-        localStorage.getItem("smde_" + this.options.autosave.uniqueId) !== ""
-      ) {
+      if (typeof localStorage.getItem("smde_" + this.options.autosave.uniqueId) === "string" && localStorage.getItem("smde_" + this.options.autosave.uniqueId) !== "") {
         this.codemirror.setValue(localStorage.getItem("smde_" + this.options.autosave.uniqueId));
         this.options.autosave.foundSavedValue = true;
       }
@@ -1737,7 +1823,7 @@ Meditate.prototype.autosave = function() {
       this.options.autosave.loaded = true;
     }
 
-    localStorage.setItem("smde_" + this.options.autosave.uniqueId, meditate.value());
+    localStorage.setItem("smde_" + this.options.autosave.uniqueId, easyMDE.value());
 
     const el = document.getElementById("autosaved");
 
@@ -1762,10 +1848,10 @@ Meditate.prototype.autosave = function() {
     }
 
     this.autosaveTimeoutId = setTimeout(function() {
-      meditate.autosave();
+      easyMDE.autosave();
     }, this.options.autosave.delay || 10000);
   } else {
-    console.warn("Meditate: localStorage not available, cannot autosave"); // eslint-disable-line no-console
+    console.log("Meditate: localStorage not available, cannot autosave"); // eslint-disable-line no-console
   }
 };
 
@@ -1776,13 +1862,13 @@ Meditate.prototype.clearAutosavedValue = function() {
       this.options.autosave.uniqueId === undefined ||
       this.options.autosave.uniqueId === ""
     ) {
-      console.warn("Meditate: You must set a uniqueId to clear the autosave value"); // eslint-disable-line no-console
+      console.log("Meditate: You must set a uniqueId to clear the autosave value"); // eslint-disable-line no-console
       return;
     }
 
     localStorage.removeItem("smde_" + this.options.autosave.uniqueId);
   } else {
-    console.warn("Meditate: localStorage not available, cannot autosave"); // eslint-disable-line no-console
+    console.log("Meditate: localStorage not available, cannot autosave"); // eslint-disable-line no-console
   }
 };
 
@@ -1797,11 +1883,14 @@ Meditate.prototype.createSideBySide = function() {
     wrapper.parentNode.insertBefore(preview, wrapper.nextSibling);
   }
 
-  // Syncs scroll  editor -> preview
+  if (this.options.syncSideBySidePreviewScroll === false)
+    return preview;
+
+  // Syncs scroll editor -> preview
   let cScroll = false;
   let pScroll = false;
 
-  cm.on("scroll", v => {
+  cm.on("scroll", function(v) {
     if (cScroll) {
       cScroll = false;
       return;
@@ -1841,9 +1930,7 @@ Meditate.prototype.createToolbar = function(items) {
   if (!items || items.length === 0)
     return;
 
-  let i;
-
-  for (i = 0; i < items.length; i++) {
+  for (let i = 0; i < items.length; i++) {
     if (toolbarBuiltInButtons[items[i]] !== undefined)
       items[i] = toolbarBuiltInButtons[items[i]];
   }
@@ -1855,7 +1942,7 @@ Meditate.prototype.createToolbar = function(items) {
   bar.className = "editor-toolbar";
   self.toolbar = items;
 
-  for (i = 0; i < items.length; i++) {
+  for (let i = 0; i < items.length; i++) {
     if (items[i].name === "guide" && self.options.toolbarGuideIcon === false)
       continue;
 
@@ -1867,14 +1954,13 @@ Meditate.prototype.createToolbar = function(items) {
     if ((items[i].name === "fullscreen" || items[i].name === "side-by-side") && isMobile())
       continue;
 
-    // Don't include trailing separators
+    // Do not include trailing separators
     if (items[i] === "|") {
       let nonSeparatorIconsFollow = false;
 
-      for (var x = (i + 1); x < items.length; x++) {
-        if (items[x] !== "|" && (!self.options.hideIcons || self.options.hideIcons.indexOf(items[x].name) === -1)) {
+      for (let x = (i + 1); x < items.length; x++) {
+        if (items[x] !== "|" && (!self.options.hideIcons || self.options.hideIcons.indexOf(items[x].name) === -1))
           nonSeparatorIconsFollow = true;
-        }
       }
 
       if (!nonSeparatorIconsFollow)
@@ -1888,7 +1974,7 @@ Meditate.prototype.createToolbar = function(items) {
       if (item === "|")
         el = createSep();
       else
-        el = createIcon(item, self.options.toolbarTips, self.options.shortcuts);
+        el = createToolbarButton(item, self.options.toolbarTips, self.options.shortcuts);
 
       // bind events, special for info
       if (item.action) {
@@ -1898,8 +1984,10 @@ Meditate.prototype.createToolbar = function(items) {
             item.action(self);
           };
         } else if (typeof item.action === "string") {
-          el.href = item.action;
-          el.target = "_blank";
+          el.onclick = function(e) {
+            e.preventDefault();
+            window.open(item.action, "_blank");
+          };
         }
       }
 
@@ -1909,6 +1997,7 @@ Meditate.prototype.createToolbar = function(items) {
   }
 
   self.toolbarElements = toolbarData;
+
   const cm = this.codemirror;
 
   cm.on("cursorActivity", function() {
@@ -1945,10 +2034,9 @@ Meditate.prototype.createStatusbar = function(status) {
   // Set up the built-in items
   const items = [];
   let defaultValue;
-  let i;
   let onUpdate;
 
-  for (i = 0; i < status.length; i++) {
+  for (let i = 0; i < status.length; i++) {
     // Reset some values
     onUpdate = undefined;
     defaultValue = undefined;
@@ -1963,23 +2051,36 @@ Meditate.prototype.createStatusbar = function(status) {
     } else {
       const name = status[i];
 
-      if (name === "words") {
-        defaultValue = el => el.innerHTML = wordCount(cm.getValue());
-        onUpdate = el => el.innerHTML = wordCount(cm.getValue());
-      } else if (name === "lines") {
-        defaultValue = el => el.innerHTML = cm.lineCount();
-        onUpdate = el => el.innerHTML = cm.lineCount();
-      } else if (name === "cursor") {
-        defaultValue = el => el.innerHTML = "0:0";
-        onUpdate = function(el) {
-          const pos = cm.getCursor();
-          el.innerHTML = pos.line + ":" + pos.ch; // eslint-disable-line padding-line-between-statements
-        };
-      } else if (name === "autosave") {
-        defaultValue = function(el) {
-          if (options.autosave !== undefined && options.autosave.enabled === true)
-            el.setAttribute("id", "autosaved");
-        };
+      switch(true) {
+        case name === "words":
+          defaultValue = el => el.innerHTML = wordCount(cm.getValue());
+          onUpdate = el => el.innerHTML = wordCount(cm.getValue());
+          break;
+
+        case name === "lines":
+          defaultValue = el => el.innerHTML = cm.lineCount();
+          onUpdate = el => el.innerHTML = cm.lineCount();
+          break;
+
+        case name === "cursor":
+          defaultValue = el => el.innerHTML = "0:0";
+
+          onUpdate = function(el) {
+            const pos = cm.getCursor();
+            el.innerHTML = pos.line + ":" + pos.ch; // eslint-disable-line padding-line-between-statements
+          };
+
+          break;
+
+        case name === "autosave":
+          defaultValue = el => {
+            if (options.autosave !== undefined && options.autosave.enabled === true)
+              el.setAttribute("id", "autosaved");
+          };
+          break;
+
+        default:
+          break;
       }
 
       items.push({
@@ -1990,18 +2091,19 @@ Meditate.prototype.createStatusbar = function(status) {
     }
   }
 
+
   // Create element for the status bar
   const bar = document.createElement("div");
-  bar.className = "editor-statusbar"; // eslint-disable-line padding-line-between-statements
+
+  bar.className = "editor-statusbar";
+
 
   // Create a new span for each item
-  for (i = 0; i < items.length; i++) {
-    // Store in temporary variable
-    const item = items[i];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]; // Store in temporary variable
+    const el = document.createElement("span"); // Create span element
 
-    // Create span element
-    const el = document.createElement("span");
-    el.className = item.className; // eslint-disable-line padding-line-between-statements
+    el.className = item.className;
 
     // Ensure the defaultValue is a function
     if (typeof item.defaultValue === "function")
@@ -2032,10 +2134,20 @@ Meditate.prototype.createStatusbar = function(status) {
  * Get or set the text content.
  */
 Meditate.prototype.value = function(val) {
+  const cm = this.codemirror;
+
   if (val === undefined) {
-    return this.codemirror.getValue();
+    return cm.getValue();
   } else {
-    this.codemirror.getDoc().setValue(val);
+    cm.getDoc().setValue(val);
+
+    if (this.isPreviewActive()) {
+      const wrapper = cm.getWrapperElement();
+      const preview = wrapper.lastChild;
+
+      preview.innerHTML = this.options.previewRender(val, preview);
+    }
+
     return this;
   }
 };
@@ -2044,28 +2156,28 @@ Meditate.prototype.value = function(val) {
 /**
  * Bind static methods for exports.
  */
-Meditate.cleanBlock = cleanBlock;
-Meditate.drawHorizontalRule = drawHorizontalRule;
-Meditate.drawImage = drawImage;
-Meditate.drawLink = drawLink;
-Meditate.drawTable = drawTable;
-Meditate.redo = redo;
-Meditate.toggleBlockquote = toggleBlockquote;
 Meditate.toggleBold = toggleBold;
-Meditate.toggleCodeBlock = toggleCodeBlock;
-Meditate.toggleFullScreen = toggleFullScreen;
+Meditate.toggleItalic = toggleItalic;
+Meditate.toggleStrikethrough = toggleStrikethrough;
+Meditate.toggleBlockquote = toggleBlockquote;
+Meditate.toggleHeadingSmaller = toggleHeadingSmaller;
+Meditate.toggleHeadingBigger = toggleHeadingBigger;
 Meditate.toggleHeading1 = toggleHeading1;
 Meditate.toggleHeading2 = toggleHeading2;
 Meditate.toggleHeading3 = toggleHeading3;
-Meditate.toggleHeadingBigger = toggleHeadingBigger;
-Meditate.toggleHeadingSmaller = toggleHeadingSmaller;
-Meditate.toggleItalic = toggleItalic;
+Meditate.toggleCodeBlock = toggleCodeBlock;
+Meditate.toggleUnorderedList = toggleUnorderedList;
 Meditate.toggleOrderedList = toggleOrderedList;
+Meditate.cleanBlock = cleanBlock;
+Meditate.drawLink = drawLink;
+Meditate.drawImage = drawImage;
+Meditate.drawTable = drawTable;
+Meditate.drawHorizontalRule = drawHorizontalRule;
+Meditate.undo = undo;
+Meditate.redo = redo;
 Meditate.togglePreview = togglePreview;
 Meditate.toggleSideBySide = toggleSideBySide;
-Meditate.toggleStrikethrough = toggleStrikethrough;
-Meditate.toggleUnorderedList = toggleUnorderedList;
-Meditate.undo = undo;
+Meditate.toggleFullScreen = toggleFullScreen;
 
 /**
  * Bind instance methods for exports.
@@ -2208,9 +2320,5 @@ Meditate.prototype.toTextArea = function() {
     this.clearAutosavedValue();
   }
 };
-
-
-
-//  E X P O R T
 
 module.exports = exports = Meditate;

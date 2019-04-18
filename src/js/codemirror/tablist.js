@@ -1,16 +1,9 @@
-"use strict";
-
-
-
-//  P A C K A G E
+// CodeMirror, copyright (c) by Marijn Haverbeke and others
+// Distributed under an MIT license: http://codemirror.net/LICENSE
 
 const CodeMirror = require("codemirror");
 
-
-
-//  P R O G R A M
-
-CodeMirror.commands.tabAndIndentMarkdownList = cm => {
+CodeMirror.commands.tabAndIndentMarkdownList = function(cm) {
   const ranges = cm.listSelections();
   const pos = ranges[0].head;
   const eolState = cm.getStateAfter(pos.line);
@@ -29,7 +22,7 @@ CodeMirror.commands.tabAndIndentMarkdownList = cm => {
   }
 };
 
-CodeMirror.commands.shiftTabAndUnindentMarkdownList = cm => {
+CodeMirror.commands.shiftTabAndUnindentMarkdownList = function(cm) {
   const ranges = cm.listSelections();
   const pos = ranges[0].head;
   const eolState = cm.getStateAfter(pos.line);

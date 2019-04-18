@@ -1,108 +1,51 @@
 "use strict";
 
 
-
-//  P A C K A G E S
-
 const browserify = require("browserify");
 const buffer = require("vinyl-buffer");
+const cleanCSS = require("gulp-clean-css");
 const concat = require("gulp-concat");
-const debug = require("gulp-debug");
 const eslint = require("gulp-eslint");
 const gulp = require("gulp");
 const header = require("gulp-header");
-const minifycss = require("gulp-clean-css");
-const prettify = require("gulp-jsbeautifier");
 const rename = require("gulp-rename");
 const source = require("vinyl-source-stream");
-const uglify = require("gulp-uglify");
-
-//  U T I L S
+const terser = require("gulp-terser");
 
 const pkg = require("./package.json");
 
 const banner = [
   "/**",
   " * <%= pkg.name %> v<%= pkg.version %>",
-  " * Copyright <%= pkg.company %>",
-  " * @link <%= pkg.homepage %>",
+  " * Copyright <%= pkg.author %>",
+  " * @link <%= pkg.repository.url %>",
   " * @license <%= pkg.license %>",
   " */",
   ""
 ].join("\n");
 
-
-
-//  P R O G R A M
-
-gulp.task("prettify-js", [], () => {
-  return gulp.src("./src/js/meditate.js")
-    .pipe(prettify({
-      js: {
-        brace_style: "collapse",
-        indent_char: "\t",
-        indent_size: 1,
-        max_preserve_newlines: 3,
-        space_before_conditional: false
-      }
-    }))
-    .pipe(gulp.dest("./src/js"));
-});
-
-gulp.task("prettify-css", [], () => {
-  return gulp.src("./src/css/meditate.css")
-    .pipe(prettify({
-      css: {
-        indentChar: "\t",
-        indentSize: 1
-      }
-    }))
-    .pipe(gulp.dest("./src/css"));
-});
-
-gulp.task("lint", ["prettify-js"], () => {
-  gulp.src("./src/js/**/*.js")
-    .pipe(debug())
+function lint() {
+  return gulp.src("./src/js/**/*.js")
     .pipe(eslint())
     .pipe(eslint.format())
     .pipe(eslint.failAfterError());
-});
-
-function taskBrowserify(opts) {
-  return browserify("./src/js/meditate.js", opts).bundle();
 }
 
-gulp.task("browserify:debug", ["lint"], () => {
-  return taskBrowserify({
-    debug: true,
-    standalone: "Meditate"
-  })
-    .pipe(source("meditate.debug.js"))
+function scripts() {
+  return browserify({ entries: "./src/js/meditate.js", standalone: "Meditate" }).bundle()
+    .pipe(source("meditate.min.js"))
     .pipe(buffer())
-    .pipe(header(banner, { pkg: pkg }))
-    .pipe(gulp.dest("./debug/"));
-});
-
-gulp.task("browserify", ["lint"], () => {
-  return taskBrowserify({ standalone: "Meditate" })
-    .pipe(source("meditate.js"))
-    .pipe(buffer())
-    .pipe(header(banner, { pkg: pkg }))
-    .pipe(gulp.dest("./debug/"));
-});
-
-gulp.task("scripts", ["browserify:debug", "browserify", "lint"], () => {
-  const js_files = ["./debug/meditate.js"];
-
-  return gulp.src(js_files)
-    .pipe(concat("meditate.min.js"))
-    .pipe(uglify())
-    .pipe(buffer())
-    .pipe(header(banner, { pkg: pkg }))
+    .pipe(terser({
+      mangle: {
+        toplevel: true
+      }
+    }))
+    // .pipe(uglify()) // breaks due to `const`
+    .pipe(header(banner, { pkg }))
     .pipe(gulp.dest("./dist/"));
-});
+}
 
-gulp.task("styles", ["prettify-css"], () => {
+function styles() {
   const css_files = [
     "./node_modules/codemirror/lib/codemirror.css",
     "./src/css/*.css",
@@ -111,14 +54,13 @@ gulp.task("styles", ["prettify-css"], () => {
 
   return gulp.src(css_files)
     .pipe(concat("meditate.css"))
-    .pipe(buffer())
-    .pipe(header(banner, { pkg: pkg }))
-    .pipe(gulp.dest("./debug/"))
-    .pipe(minifycss())
+    .pipe(cleanCSS())
     .pipe(rename("meditate.min.css"))
     .pipe(buffer())
-    .pipe(header(banner, { pkg: pkg }))
+    .pipe(header(banner, { pkg }))
     .pipe(gulp.dest("./dist/"));
-});
+}
 
-gulp.task("default", ["scripts", "styles"]);
+const build = gulp.parallel(gulp.series(lint, scripts), styles);
+
+gulp.task("default", build);
