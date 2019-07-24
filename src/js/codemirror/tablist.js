@@ -3,7 +3,7 @@
 
 const CodeMirror = require("codemirror");
 
-CodeMirror.commands.tabAndIndentMarkdownList = function(cm) {
+CodeMirror.commands.tabAndIndentMarkdownList = cm => {
   const ranges = cm.listSelections();
   const pos = ranges[0].head;
   const eolState = cm.getStateAfter(pos.line);
@@ -14,15 +14,15 @@ CodeMirror.commands.tabAndIndentMarkdownList = function(cm) {
     return;
   }
 
-  if (cm.options.indentWithTabs) {
+  if (cm.options.indentWithTabs)
     cm.execCommand("insertTab");
-  } else {
+  else {
     const spaces = Array(cm.options.tabSize + 1).join(" ");
     cm.replaceSelection(spaces); // eslint-disable-line padding-line-between-statements
   }
 };
 
-CodeMirror.commands.shiftTabAndUnindentMarkdownList = function(cm) {
+CodeMirror.commands.shiftTabAndUnindentMarkdownList = cm => {
   const ranges = cm.listSelections();
   const pos = ranges[0].head;
   const eolState = cm.getStateAfter(pos.line);
@@ -33,9 +33,9 @@ CodeMirror.commands.shiftTabAndUnindentMarkdownList = function(cm) {
     return;
   }
 
-  if (cm.options.indentWithTabs) {
+  if (cm.options.indentWithTabs)
     cm.execCommand("insertTab");
-  } else {
+  else {
     const spaces = Array(cm.options.tabSize + 1).join(" ");
     cm.replaceSelection(spaces); // eslint-disable-line padding-line-between-statements
   }

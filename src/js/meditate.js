@@ -1,4 +1,4 @@
-"use strict"; /* global module, require */
+"use strict";
 
 
 
@@ -87,7 +87,7 @@ const isMobile = function() {
 };
 
 // Saved overflow setting
-let saved_overflow = "";
+let savedOverflow = "";
 
 
 
@@ -99,7 +99,7 @@ let saved_overflow = "";
 function addAnchorTargetBlank(htmlText) {
   let match;
 
-  while ((match = anchorToExternalRegex.exec(htmlText)) !== null) {
+  while((match = anchorToExternalRegex.exec(htmlText)) !== null) {
     // With only one capture group in the RegExp, we can safely take the first index from the match.
     const linkString = match[0];
 
@@ -288,11 +288,11 @@ function toggleFullScreen(editor) {
 
   // Prevent scrolling on body during fullscreen active
   if (cm.getOption("fullScreen")) {
-    saved_overflow = document.body.style.overflow;
+    savedOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-  } else {
-    document.body.style.overflow = saved_overflow;
-  }
+  } else
+    document.body.style.overflow = savedOverflow;
+
 
   // Update toolbar class
   const wrap = cm.getWrapperElement();
@@ -349,227 +349,226 @@ function toggleStrikethrough(editor) {
 function toggleCodeBlock(editor) {
   const fenceCharsToInsert = editor.options.blockStyles.code;
 
-  function fencing_line(line) {
-    /* return true, if this is a ``` or ~~~ line */
+  function fencingLine(line) {
+    // return true, if this is a ``` or ~~~ line
     if (typeof line !== "object")
-      throw "fencing_line() takes a 'line' object (not a line number, or line text).  Got: " + typeof line + ": " + line;
+      throw new Error(`fencingLine() takes a 'line' object (not a line number, or line text). Got ${typeof line}: ${line}`);
 
     return line.styles && line.styles[2] && line.styles[2].indexOf("formatting-code-block") !== -1;
   }
 
-  function token_state(token) {
+  function tokenState(token) {
     // base goes an extra level deep when mode backdrops are used, e.g. spellchecker on
     return token.state.base.base || token.state.base;
   }
 
-  function code_type(cm, line_num, line, firstTok, lastTok) {
+  function codeType(cm, lineNum, line, firstTok, lastTok) {
     /*
      * Return "single", "indented", "fenced" or false
      *
-     * cm and line_num are required.  Others are optional for efficiency
+     * cm and lineNum are required.  Others are optional for efficiency
      *   To check in the middle of a line, pass in firstTok yourself.
      */
-    line = line || cm.getLineHandle(line_num);
+    line = line || cm.getLineHandle(lineNum);
 
     firstTok = firstTok || cm.getTokenAt({
-      line: line_num,
+      line: lineNum,
       ch: 1
     });
 
     lastTok = lastTok || (!!line.text && cm.getTokenAt({
-      line: line_num,
+      line: lineNum,
       ch: line.text.length - 1
     }));
 
     const types = firstTok.type ? firstTok.type.split(" ") : [];
 
-    if (lastTok && token_state(lastTok).indentedCode) {
+    if (lastTok && tokenState(lastTok).indentedCode) {
       // have to check last char, since first chars of first line are not marked as indented
       return "indented";
     } else if (types.indexOf("comment") === -1) {
       // has to be after "indented" check, since first chars of first indented line are not marked as such
       return false;
-    } else if (token_state(firstTok).fencedChars || token_state(lastTok).fencedChars || fencing_line(line)) {
+    } else if (tokenState(firstTok).fencedChars || tokenState(lastTok).fencedChars || fencingLine(line))
       return "fenced";
-    } else {
+    else
       return "single";
-    }
   }
 
-  function insertFencingAtSelection(cm, cur_start, cur_end, fenceCharsToInsert) {
-    const start_line_sel = cur_start.line + 1;
-    let end_line_sel = cur_end.line + 1;
-    const sel_multi = cur_start.line !== cur_end.line;
-    const repl_start = fenceCharsToInsert + "\n";
-    let repl_end = "\n" + fenceCharsToInsert;
+  function insertFencingAtSelection(cm, curStart, curEnd, fenceCharsToInsert) {
+    const startLineSel = curStart.line + 1;
+    let endLineSel = curEnd.line + 1;
+    const selMulti = curStart.line !== curEnd.line;
+    const replStart = fenceCharsToInsert + "\n";
+    let replEnd = "\n" + fenceCharsToInsert;
 
-    if (sel_multi)
-      end_line_sel++;
+    if (selMulti)
+      endLineSel++;
 
     // handle last char including \n or not
-    if (sel_multi && cur_end.ch === 0) {
-      repl_end = fenceCharsToInsert + "\n";
-      end_line_sel--;
+    if (selMulti && curEnd.ch === 0) {
+      replEnd = fenceCharsToInsert + "\n";
+      endLineSel--;
     }
 
-    _replaceSelection(cm, false, [repl_start, repl_end]);
+    _replaceSelection(cm, false, [replStart, replEnd]);
 
     cm.setSelection(
       {
-        line: start_line_sel,
+        line: startLineSel,
         ch: 0
       }, {
-        line: end_line_sel,
+        line: endLineSel,
         ch: 0
       }
     );
   }
 
   const cm = editor.codemirror;
-  const cur_start = cm.getCursor("start");
-  const cur_end = cm.getCursor("end");
+  const curStart = cm.getCursor("start");
+  const curEnd = cm.getCursor("end");
 
   const tok = cm.getTokenAt({
-    line: cur_start.line,
-    ch: cur_start.ch || 1
+    line: curStart.line,
+    ch: curStart.ch || 1
   }); // avoid ch 0 which is a cursor pos but not token
 
-  let line = cm.getLineHandle(cur_start.line);
-  const is_code = code_type(cm, cur_start.line, line, tok);
-  let block_end;
-  let block_start;
+  let line = cm.getLineHandle(curStart.line);
+  const isCode = codeType(cm, curStart.line, line, tok);
+  let blockEnd;
+  let blockStart;
   let lineCount;
 
-  if (is_code === "single") {
+  if (isCode === "single") {
     // similar to some Meditate _toggleBlock logic
-    const start = line.text.slice(0, cur_start.ch).replace("`", "");
-    const end = line.text.slice(cur_start.ch).replace("`", "");
+    const start = line.text.slice(0, curStart.ch).replace("`", "");
+    const end = line.text.slice(curStart.ch).replace("`", "");
 
     cm.replaceRange(start + end, {
-      line: cur_start.line,
+      line: curStart.line,
       ch: 0
     }, {
-      line: cur_start.line,
+      line: curStart.line,
       ch: 99999999999999
     });
 
-    cur_start.ch--;
+    curStart.ch--;
 
-    if (cur_start !== cur_end)
-      cur_end.ch--;
+    if (curStart !== curEnd)
+      curEnd.ch--;
 
-    cm.setSelection(cur_start, cur_end);
+    cm.setSelection(curStart, curEnd);
     cm.focus();
-  } else if (is_code === "fenced") {
-    if (cur_start.line !== cur_end.line || cur_start.ch !== cur_end.ch) {
+  } else if (isCode === "fenced") {
+    if (curStart.line !== curEnd.line || curStart.ch !== curEnd.ch) {
       // use selection
 
       // find the fenced line so we know what type it is (tilde, backticks, number of them)
-      for (block_start = cur_start.line; block_start >= 0; block_start--) {
-        line = cm.getLineHandle(block_start);
+      for (blockStart = curStart.line; blockStart >= 0; blockStart--) {
+        line = cm.getLineHandle(blockStart);
 
-        if (fencing_line(line))
+        if (fencingLine(line))
           break;
       }
 
       const fencedTok = cm.getTokenAt({
-        line: block_start,
+        line: blockStart,
         ch: 1
       });
 
-      const fence_chars = token_state(fencedTok).fencedChars;
-      let start_line;
-      let start_text;
-      let end_line;
-      let end_text;
+      const fenceChars = tokenState(fencedTok).fencedChars;
+      let startLine;
+      let startText;
+      let endLine;
+      let endText;
 
       // check for selection going up against fenced lines, in which case we do not want to add more fencing
-      if (fencing_line(cm.getLineHandle(cur_start.line))) {
-        start_text = "";
-        start_line = cur_start.line;
-      } else if (fencing_line(cm.getLineHandle(cur_start.line - 1))) {
-        start_text = "";
-        start_line = cur_start.line - 1;
+      if (fencingLine(cm.getLineHandle(curStart.line))) {
+        startText = "";
+        startLine = curStart.line;
+      } else if (fencingLine(cm.getLineHandle(curStart.line - 1))) {
+        startText = "";
+        startLine = curStart.line - 1;
       } else {
-        start_text = fence_chars + "\n";
-        start_line = cur_start.line;
+        startText = fenceChars + "\n";
+        startLine = curStart.line;
       }
 
-      if (fencing_line(cm.getLineHandle(cur_end.line))) {
-        end_text = "";
-        end_line = cur_end.line;
+      if (fencingLine(cm.getLineHandle(curEnd.line))) {
+        endText = "";
+        endLine = curEnd.line;
 
-        if (cur_end.ch === 0)
-          end_line += 1;
-      } else if (cur_end.ch !== 0 && fencing_line(cm.getLineHandle(cur_end.line + 1))) {
-        end_text = "";
-        end_line = cur_end.line + 1;
+        if (curEnd.ch === 0)
+          endLine += 1;
+      } else if (curEnd.ch !== 0 && fencingLine(cm.getLineHandle(curEnd.line + 1))) {
+        endText = "";
+        endLine = curEnd.line + 1;
       } else {
-        end_text = fence_chars + "\n";
-        end_line = cur_end.line + 1;
+        endText = fenceChars + "\n";
+        endLine = curEnd.line + 1;
       }
 
       // full last line selected, putting cursor at beginning of next
-      if (cur_end.ch === 0)
-        end_line -= 1;
+      if (curEnd.ch === 0)
+        endLine -= 1;
 
       cm.operation(function() {
         // end line first, so that line numbers do not change
-        cm.replaceRange(end_text, {
-          line: end_line,
+        cm.replaceRange(endText, {
+          line: endLine,
           ch: 0
         }, {
-          line: end_line + (end_text ? 0 : 1),
+          line: endLine + (endText ? 0 : 1),
           ch: 0
         });
-        cm.replaceRange(start_text, {
-          line: start_line,
+        cm.replaceRange(startText, {
+          line: startLine,
           ch: 0
         }, {
-          line: start_line + (start_text ? 0 : 1),
+          line: startLine + (startText ? 0 : 1),
           ch: 0
         });
       });
 
       cm.setSelection({
-        line: start_line + (start_text ? 1 : 0),
+        line: startLine + (startText ? 1 : 0),
         ch: 0
       }, {
-        line: end_line + (start_text ? 1 : -1),
+        line: endLine + (startText ? 1 : -1),
         ch: 0
       });
 
       cm.focus();
     } else {
       // no selection, search for ends of this fenced block
-      let search_from = cur_start.line;
+      let searchFrom = curStart.line;
 
-      if (fencing_line(cm.getLineHandle(cur_start.line))) { // gets a little tricky if cursor is right on a fenced line
-        if (code_type(cm, cur_start.line + 1) === "fenced") {
-          block_start = cur_start.line;
-          search_from = cur_start.line + 1; // for searching for "end"
+      if (fencingLine(cm.getLineHandle(curStart.line))) { // gets a little tricky if cursor is right on a fenced line
+        if (codeType(cm, curStart.line + 1) === "fenced") {
+          blockStart = curStart.line;
+          searchFrom = curStart.line + 1; // for searching for "end"
         } else {
-          block_end = cur_start.line;
-          search_from = cur_start.line - 1; // for searching for "start"
+          blockEnd = curStart.line;
+          searchFrom = curStart.line - 1; // for searching for "start"
         }
       }
 
-      if (block_start === undefined) {
-        for (block_start = search_from; block_start >= 0; block_start--) {
-          line = cm.getLineHandle(block_start);
+      if (blockStart === undefined) {
+        for (blockStart = searchFrom; blockStart >= 0; blockStart--) {
+          line = cm.getLineHandle(blockStart);
 
-          if (fencing_line(line))
+          if (fencingLine(line))
             break;
         }
       }
 
-      if (block_end === undefined) {
+      if (blockEnd === undefined) {
         lineCount = cm.lineCount();
 
-        for (block_end = search_from; block_end < lineCount; block_end++) {
-          line = cm.getLineHandle(block_end);
+        for (blockEnd = searchFrom; blockEnd < lineCount; blockEnd++) {
+          line = cm.getLineHandle(blockEnd);
 
-          if (fencing_line(line))
+          if (fencingLine(line))
             break;
         }
       }
@@ -577,20 +576,20 @@ function toggleCodeBlock(editor) {
       cm.operation(function() {
         cm.replaceRange("",
           {
-            line: block_start,
+            line: blockStart,
             ch: 0
           }, {
-            line: block_start + 1,
+            line: blockStart + 1,
             ch: 0
           }
         );
 
         cm.replaceRange("",
           {
-            line: block_end - 1,
+            line: blockEnd - 1,
             ch: 0
           }, {
-            line: block_end,
+            line: blockEnd,
             ch: 0
           }
         );
@@ -598,25 +597,25 @@ function toggleCodeBlock(editor) {
 
       cm.focus();
     }
-  } else if (is_code === "indented") {
-    if (cur_start.line !== cur_end.line || cur_start.ch !== cur_end.ch) {
+  } else if (isCode === "indented") {
+    if (curStart.line !== curEnd.line || curStart.ch !== curEnd.ch) {
       // use selection
-      block_start = cur_start.line;
-      block_end = cur_end.line;
+      blockStart = curStart.line;
+      blockEnd = curEnd.line;
 
-      if (cur_end.ch === 0)
-        block_end--;
+      if (curEnd.ch === 0)
+        blockEnd--;
     } else {
       // no selection, search for ends of this indented block
-      for (block_start = cur_start.line; block_start >= 0; block_start--) {
-        line = cm.getLineHandle(block_start);
+      for (blockStart = curStart.line; blockStart >= 0; blockStart--) {
+        line = cm.getLineHandle(blockStart);
 
         if (line.text.match(/^\s*$/)) {
           // empty or all whitespace - keep going
           continue;
         } else {
-          if (code_type(cm, block_start, line) !== "indented") {
-            block_start += 1;
+          if (codeType(cm, blockStart, line) !== "indented") {
+            blockStart += 1;
             break;
           }
         }
@@ -624,15 +623,15 @@ function toggleCodeBlock(editor) {
 
       lineCount = cm.lineCount();
 
-      for (block_end = cur_start.line; block_end < lineCount; block_end++) {
-        line = cm.getLineHandle(block_end);
+      for (blockEnd = curStart.line; blockEnd < lineCount; blockEnd++) {
+        line = cm.getLineHandle(blockEnd);
 
         if (line.text.match(/^\s*$/)) {
           // empty or all whitespace - keep going
           continue;
         } else {
-          if (code_type(cm, block_end, line) !== "indented") {
-            block_end -= 1;
+          if (codeType(cm, blockEnd, line) !== "indented") {
+            blockEnd -= 1;
             break;
           }
         }
@@ -641,33 +640,33 @@ function toggleCodeBlock(editor) {
 
     // if we are going to un-indent based on a selected set of lines, and the next line is indented too, we need to
     // insert a blank line so that the next line(s) continue to be indented code
-    const next_line = cm.getLineHandle(block_end + 1);
+    const nextLine = cm.getLineHandle(blockEnd + 1);
 
-    const next_line_last_tok = next_line && cm.getTokenAt({
-      line: block_end + 1,
-      ch: next_line.text.length - 1
+    const nextLineLastTok = nextLine && cm.getTokenAt({
+      line: blockEnd + 1,
+      ch: nextLine.text.length - 1
     });
 
-    const next_line_indented = next_line_last_tok && token_state(next_line_last_tok).indentedCode;
+    const nextLineIndented = nextLineLastTok && tokenState(nextLineLastTok).indentedCode;
 
-    if (next_line_indented) {
+    if (nextLineIndented) {
       cm.replaceRange("\n", {
-        line: block_end + 1,
+        line: blockEnd + 1,
         ch: 0
       });
     }
 
-    for (let i = block_start; i <= block_end; i++)
+    for (let i = blockStart; i <= blockEnd; i++)
       cm.indentLine(i, "subtract"); // TODO: this doesn't get tracked in the history, so can't be undone :(
 
     cm.focus();
   } else {
     // insert code formatting
-    const no_sel_and_starting_of_line = (cur_start.line === cur_end.line && cur_start.ch === cur_end.ch && cur_start.ch === 0);
-    const sel_multi = cur_start.line !== cur_end.line;
+    const noSelAndStartingOfLine = (curStart.line === curEnd.line && curStart.ch === curEnd.ch && curStart.ch === 0);
+    const selMulti = curStart.line !== curEnd.line;
 
-    if (no_sel_and_starting_of_line || sel_multi)
-      insertFencingAtSelection(cm, cur_start, cur_end, fenceCharsToInsert);
+    if (noSelAndStartingOfLine || selMulti)
+      insertFencingAtSelection(cm, curStart, curEnd, fenceCharsToInsert);
     else
       _replaceSelection(cm, false, ["`", "`"]);
   }
@@ -875,10 +874,10 @@ function toggleSideBySide(editor) {
     );
 
     const toolbar = editor.toolbarElements.preview;
-    const toolbar_div = wrapper.previousSibling;
+    const toolbarDiv = wrapper.previousSibling;
 
     toolbar.className = toolbar.className.replace(/\s*active\s*/g, "");
-    toolbar_div.className = toolbar_div.className.replace(/\s*disabled-for-preview*/g, "");
+    toolbarDiv.className = toolbarDiv.className.replace(/\s*disabled-for-preview*/g, "");
   }
 
   const sideBySideRenderingFunction = function() {
@@ -891,9 +890,9 @@ function toggleSideBySide(editor) {
   if (useSideBySideListener) {
     preview.innerHTML = editor.options.previewRender(editor.value(), preview);
     cm.on("update", cm.sideBySideRenderingFunction);
-  } else {
+  } else
     cm.off("update", cm.sideBySideRenderingFunction);
-  }
+
 
   // Refresh to fix selection being off (#309)
   cm.refresh();
@@ -906,7 +905,7 @@ function toggleSideBySide(editor) {
 function togglePreview(editor) {
   const cm = editor.codemirror;
   const wrapper = cm.getWrapperElement();
-  const toolbar_div = wrapper.previousSibling;
+  const toolbarDiv = wrapper.previousSibling;
   const toolbar = editor.options.toolbar ? editor.toolbarElements.preview : false;
   let preview = wrapper.lastChild;
 
@@ -923,7 +922,7 @@ function togglePreview(editor) {
 
     if (toolbar) {
       toolbar.className = toolbar.className.replace(/\s*active\s*/g, "");
-      toolbar_div.className = toolbar_div.className.replace(/\s*disabled-for-preview*/g, "");
+      toolbarDiv.className = toolbarDiv.className.replace(/\s*disabled-for-preview*/g, "");
     }
   } else {
     // When the preview button is clicked for the first time,
@@ -935,7 +934,7 @@ function togglePreview(editor) {
 
     if (toolbar) {
       toolbar.className += " active";
-      toolbar_div.className += " disabled-for-preview";
+      toolbarDiv.className += " disabled-for-preview";
     }
   }
 
@@ -1005,11 +1004,11 @@ function _toggleHeading(cm, direction, size) {
             text = "###### " + text;
           else
             text = "# " + text;
-        } else if (currHeadingLevel === 6 && direction === "smaller") {
+        } else if (currHeadingLevel === 6 && direction === "smaller")
           text = text.substr(7);
-        } else if (currHeadingLevel === 1 && direction === "bigger") {
+        else if (currHeadingLevel === 1 && direction === "bigger")
           text = text.substr(2);
-        } else {
+        else {
           if (direction === "bigger")
             text = text.substr(1);
           else
@@ -1017,29 +1016,26 @@ function _toggleHeading(cm, direction, size) {
         }
       } else {
         if (size === 1) {
-          if (currHeadingLevel <= 0) {
+          if (currHeadingLevel <= 0)
             text = "# " + text;
-          } else if (currHeadingLevel === size) {
+          else if (currHeadingLevel === size)
             text = text.substr(currHeadingLevel + 1);
-          } else {
+          else
             text = "# " + text.substr(currHeadingLevel + 1);
-          }
         } else if (size === 2) {
-          if (currHeadingLevel <= 0) {
+          if (currHeadingLevel <= 0)
             text = "## " + text;
-          } else if (currHeadingLevel === size) {
+          else if (currHeadingLevel === size)
             text = text.substr(currHeadingLevel + 1);
-          } else {
+          else
             text = "## " + text.substr(currHeadingLevel + 1);
-          }
         } else {
-          if (currHeadingLevel <= 0) {
+          if (currHeadingLevel <= 0)
             text = "### " + text;
-          } else if (currHeadingLevel === size) {
+          else if (currHeadingLevel === size)
             text = text.substr(currHeadingLevel + 1);
-          } else {
+          else
             text = "### " + text.substr(currHeadingLevel + 1);
-          }
         }
       }
 
@@ -1103,9 +1099,9 @@ function _toggleLine(cm, name) {
     (function(i) {
       let text = cm.getLine(i);
 
-      if (stat[name]) {
+      if (stat[name])
         text = text.replace(repl[name], "$1");
-      } else {
+      else {
         var arr = listRegexp.exec(text);
         var char = _getChar(name, line);
 
@@ -1114,9 +1110,9 @@ function _toggleLine(cm, name) {
             char = "";
 
           text = arr[1] + char + arr[3] + text.replace(whitespacesRegexp, "").replace(repl[name], "$1");
-        } else {
+        } else
           text = char + " " + text;
-        }
+
 
         line += 1;
       }
@@ -1136,20 +1132,20 @@ function _toggleLine(cm, name) {
   cm.focus();
 }
 
-function _toggleBlock(editor, type, start_chars, end_chars) {
+function _toggleBlock(editor, type, startChars, endChars) {
   if (/editor-preview-active/.test(editor.codemirror.getWrapperElement().lastChild.className))
     return;
 
-  end_chars = (typeof end_chars === "undefined") ?
-    start_chars :
-    end_chars;
+  endChars = (typeof endChars === "undefined") ?
+    startChars :
+    endChars;
 
   const cm = editor.codemirror;
   const stat = getState(cm);
 
   let text;
-  let start = start_chars;
-  let end = end_chars;
+  let start = startChars;
+  let end = endChars;
 
   const startPoint = cm.getCursor("start");
   const endPoint = cm.getCursor("end");
@@ -1200,13 +1196,13 @@ function _toggleBlock(editor, type, start_chars, end_chars) {
     } else if (type === "italic") {
       text = text.split("*").join("");
       text = text.split("_").join("");
-    } else if (type === "strikethrough") {
+    } else if (type === "strikethrough")
       text = text.split("~~").join("");
-    }
+
 
     cm.replaceSelection(start + text + end);
 
-    startPoint.ch += start_chars.length;
+    startPoint.ch += startChars.length;
     endPoint.ch = startPoint.ch + text.length;
   }
 
@@ -1241,7 +1237,7 @@ function _cleanBlock(cm) {
 // Merge the properties of one object into another.
 function _mergeProperties(target, source) {
   for (const property in source) {
-    if (source.hasOwnProperty(property)) {
+    if (Object.prototype.hasOwnProperty.call(source, "property")) {
       switch(true) {
         case source[property] instanceof Array:
           target[property] = source[property].concat(target[property] instanceof Array ? target[property] : []);
@@ -1527,9 +1523,9 @@ function Meditate(options) {
 
 
   // Find the textarea to use
-  if (options.element) {
+  if (options.element)
     this.element = options.element;
-  } else if (options.element === null) {
+  else if (options.element === null) {
     // This means that the element option was specified, but no element was found
     console.log("Meditate: Error. No element was found."); // eslint-disable-line no-console
     return;
@@ -1542,7 +1538,7 @@ function Meditate(options) {
 
     // Loop over the built in buttons, to get the preferred order
     for (const key in toolbarBuiltInButtons) {
-      if (toolbarBuiltInButtons.hasOwnProperty(key)) {
+      if (Object.prototype.hasOwnProperty.call(toolbarBuiltInButtons, "key")) {
         if (key.indexOf("separator-") !== -1)
           options.toolbar.push("|");
 
@@ -1558,7 +1554,7 @@ function Meditate(options) {
   }
 
   // Handle status bar
-  if (!options.hasOwnProperty("status"))
+  if (!Object.prototype.hasOwnProperty.call(options, "status"))
     options.status = ["autosave", "lines", "words", "cursor"];
 
   // Add default preview rendering function
@@ -1692,9 +1688,10 @@ Meditate.prototype.render = function(el) {
   document.addEventListener("keydown", function(e) {
     e = e || window.event;
 
-    if (e.keyCode === 27)
+    if (e.keyCode === 27) {
       if (self.codemirror.getOption("fullScreen"))
         toggleFullScreen(self);
+    }
   }, false);
 
   let backdrop;
@@ -1728,11 +1725,11 @@ Meditate.prototype.render = function(el) {
     theme: (options.theme !== undefined) ? options.theme : "meditate",
     tabSize: (options.tabSize !== undefined) ? options.tabSize : 2,
     indentUnit: (options.tabSize !== undefined) ? options.tabSize : 2,
-    indentWithTabs: (options.indentWithTabs === true) ? true : false,
+    indentWithTabs: options.indentWithTabs === true,
     lineNumbers: false,
-    autofocus: (options.autofocus === true) ? true : false,
+    autofocus: options.autofocus === true,
     extraKeys: keyMaps,
-    lineWrapping: (options.lineWrapping === false) ? false : true,
+    lineWrapping: options.lineWrapping === false,
     allowDropFileTypes: ["text/plain"],
     placeholder: options.placeholder || el.getAttribute("placeholder") || "",
     styleSelectedText: (options.styleSelectedText !== undefined) ? options.styleSelectedText : !isMobile(),
@@ -1764,11 +1761,11 @@ Meditate.prototype.render = function(el) {
   this._rendered = this.element;
 
   // Fixes CodeMirror bug (#344)
-  const temp_cm = this.codemirror;
+  const tempCm = this.codemirror;
 
-  setTimeout(function() {
-    temp_cm.refresh();
-  }.bind(temp_cm), 0);
+  setTimeout(() => {
+    tempCm.refresh();
+  }, 0); // }.bind(tempCm), 0);
 };
 
 // Safari, in Private Browsing Mode, looks like it supports localStorage but all calls to setItem throw QuotaExceededError. We're going to detect this and set a variable accordingly.
@@ -1777,12 +1774,12 @@ function isLocalStorageAvailable() {
     try {
       localStorage.setItem("smde_localStorage", 1);
       localStorage.removeItem("smde_localStorage");
-    } catch (e) {
+    } catch(e) {
       return false;
     }
-  } else {
+  } else
     return false;
-  }
+
 
   return true;
 }
@@ -1796,7 +1793,7 @@ Meditate.prototype.autosave = function() {
       return;
     }
 
-    if(this.options.autosave.binded !== true) {
+    if (this.options.autosave.binded !== true) {
       if (easyMDE.element.form !== null && easyMDE.element.form !== undefined) {
         easyMDE.element.form.addEventListener("submit", function() {
           clearTimeout(easyMDE.autosaveTimeoutId);
@@ -1850,9 +1847,7 @@ Meditate.prototype.autosave = function() {
     this.autosaveTimeoutId = setTimeout(function() {
       easyMDE.autosave();
     }, this.options.autosave.delay || 10000);
-  } else {
-    console.log("Meditate: localStorage not available, cannot autosave"); // eslint-disable-line no-console
-  }
+  } else console.log("Meditate: localStorage not available, cannot autosave"); // eslint-disable-line no-console
 };
 
 Meditate.prototype.clearAutosavedValue = function() {
@@ -1867,9 +1862,7 @@ Meditate.prototype.clearAutosavedValue = function() {
     }
 
     localStorage.removeItem("smde_" + this.options.autosave.uniqueId);
-  } else {
-    console.log("Meditate: localStorage not available, cannot autosave"); // eslint-disable-line no-console
-  }
+  } else console.log("Meditate: localStorage not available, cannot autosave"); // eslint-disable-line no-console
 };
 
 Meditate.prototype.createSideBySide = function() {
@@ -2053,19 +2046,19 @@ Meditate.prototype.createStatusbar = function(status) {
 
       switch(true) {
         case name === "words":
-          defaultValue = el => el.innerHTML = wordCount(cm.getValue());
-          onUpdate = el => el.innerHTML = wordCount(cm.getValue());
+          defaultValue = el => (el.innerHTML = wordCount(cm.getValue()));
+          onUpdate = el => (el.innerHTML = wordCount(cm.getValue()));
           break;
 
         case name === "lines":
-          defaultValue = el => el.innerHTML = cm.lineCount();
-          onUpdate = el => el.innerHTML = cm.lineCount();
+          defaultValue = el => (el.innerHTML = cm.lineCount());
+          onUpdate = el => (el.innerHTML = cm.lineCount());
           break;
 
         case name === "cursor":
-          defaultValue = el => el.innerHTML = "0:0";
+          defaultValue = el => (el.innerHTML = "0:0");
 
-          onUpdate = function(el) {
+          onUpdate = el => {
             const pos = cm.getCursor();
             el.innerHTML = pos.line + ":" + pos.ch; // eslint-disable-line padding-line-between-statements
           };
@@ -2136,9 +2129,9 @@ Meditate.prototype.createStatusbar = function(status) {
 Meditate.prototype.value = function(val) {
   const cm = this.codemirror;
 
-  if (val === undefined) {
+  if (val === undefined)
     return cm.getValue();
-  } else {
+  else {
     cm.getDoc().setValue(val);
 
     if (this.isPreviewActive()) {

@@ -47,13 +47,13 @@ function scripts() {
 }
 
 function styles() {
-  const css_files = [
+  const cssFiles = [
     "./node_modules/codemirror/lib/codemirror.css",
     "./src/css/*.css",
     "./node_modules/codemirror-spell-checker/src/css/spell-checker.css"
   ];
 
-  return gulp.src(css_files)
+  return gulp.src(cssFiles)
     .pipe(concat("meditate.css"))
     .pipe(cleanCSS())
     .pipe(rename("meditate.min.css"))
